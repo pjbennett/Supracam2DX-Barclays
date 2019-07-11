@@ -23,7 +23,7 @@
 //05-MAR-2019	v1.07	*** in work ***
 
 
-#define BUILD_NUMBER 1.11
+#define BUILD_NUMBER 1.12
 #define GLADE_FILE_NAME "2dx-105.glade"
 #define CCS_FILE_NAME "2dx-styles-01.css"
 
@@ -2702,7 +2702,8 @@ gboolean on_joystick_change (GIOChannel *source, GIOCondition condition, gpointe
 			{
 				joyValue2 = js.value/32; //convert to appx 0 to 1024
 				//xjoymoveCommand = (float)joyValue2/-102.4; //sensitivity limit 0 to 10, reversed
-				xjoymoveCommand = ((float)joyValue2/-25.6); //sensitivity limit 0 to 40, reversed
+				//xjoymoveCommand = ((float)joyValue2/-25.6); //sensitivity limit 0 to 40, reversed
+				xjoymoveCommand = ((float)joyValue2/25.6); //sensitivity limit 0 to 40, not reversed
 
 				//add deadband
 				if ((xjoymoveCommand < 0.2) && (xjoymoveCommand > -0.2))
@@ -2714,7 +2715,8 @@ gboolean on_joystick_change (GIOChannel *source, GIOCondition condition, gpointe
 			{
 				joyValue2 = js.value/32; //convert to appx 0 to 1024
 				//zjoymoveCommand = (float)joyValue2/102.4; //sensitivity limit 0 to 10 
-				zjoymoveCommand = (float)joyValue2/25.6; //sensitivity limit 0 to 40
+				//zjoymoveCommand = (float)joyValue2/25.6; //sensitivity limit 0 to 40
+				zjoymoveCommand = (float)joyValue2/-25.6; //sensitivity limit 0 to 40, reversed
 
 				//add deadband
 				if ((zjoymoveCommand < 0.2) && (zjoymoveCommand > -0.2))
