@@ -622,7 +622,7 @@ float DFcm[5];
 #define WINCH_IGNORE_ALL_BUT_3 	103
 #define WINCH_IGNORE_ALL_BUT_4 	104
 
-int simulationTest = TRUE;
+int simulationTest = FALSE;
 
 //-------------------------------------
 
