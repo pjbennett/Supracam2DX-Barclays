@@ -23,7 +23,7 @@
 //05-MAR-2019	v1.07	*** in work ***
 
 
-#define BUILD_NUMBER 1.12
+#define BUILD_NUMBER "1.14.1"
 #define GLADE_FILE_NAME "2dx-105.glade"
 #define CCS_FILE_NAME "2dx-styles-01.css"
 
@@ -1022,13 +1022,20 @@ void* motorControllerThread (void *arg)
 			}
 			else if (buffNumBytes[i] > 35)
 			{
+				//bytesRead = read(serialPortFD[i], readBuffer, buffNumBytes[i]); //35
+				//bytesRead = read(serialPortFD[i], readBuffer, 35); //35
+				//readBuffer[bytesRead - 1] = 0; //set string terminator, delete \n at end of string
+				sprintf(strReceivedDisplayBuffer[i], "Winch %d: Error - greater than 35 bytes rcvd", i+1);
+				commErrorCount[i]++;
+				commErrorCountTotal[i]++;
+				//sprintf(strReceivedDisplayBuffer[i], "Winch %d: Comm 35+ Error", i+1);
 				//tcflush(serialPortFD[i], TCIOFLUSH);  //flush serial port (get rid of previous cmd response)		
 			}
 			else if (buffNumBytes[i] <= 30)
 			{
 				commErrorCount[i]++;
 				commErrorCountTotal[i]++;
-				sprintf(strReceivedDisplayBuffer[i], "Winch %d: Comm Error - no return data", i+1);
+				sprintf(strReceivedDisplayBuffer[i], "Winch %d: Error - less than 35 bytes rcvd", i+1);
 			}
 
 			//check read bytes (not just available bytes)
@@ -2766,7 +2773,8 @@ gboolean on_drawingarea2_draw (GtkWidget *widget, cairo_t *cr, gpointer data)
 	cairo_show_text(cr, strMisc);
 
 	cairo_move_to(cr, 10, 60);
-	sprintf(strMisc, "Version: %5.2f", BUILD_NUMBER);
+	//sprintf(strMisc, "Version: %5.2f", BUILD_NUMBER);
+	sprintf(strMisc, "Version: %s", BUILD_NUMBER);
 	cairo_show_text(cr, strMisc);
 
 	return FALSE;
