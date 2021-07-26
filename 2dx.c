@@ -22,8 +22,13 @@
 //04-MAR-2019	v1.06	Fixed thread time display, added jog functions, new glade, new title bar
 //05-MAR-2019	v1.07	*** in work ***
 
+//03-MAR-2020 --- WSEC 2020 ---
+//05-MAR-2020 v1.17.1 Changed joystick sensitivites
+//05-MAR-2020 v1.18.1 Added time of day display, Y boundary display
+//06-MAR-2020 v1.20.1 changed floor on/off button to set floor at 2m
 
-#define BUILD_NUMBER "1.14.1"
+
+#define BUILD_NUMBER "1.35.0"
 #define GLADE_FILE_NAME "2dx-105.glade"
 #define CCS_FILE_NAME "2dx-styles-01.css"
 
@@ -124,8 +129,9 @@
 #define OK 0
 #define ERROR 1
 
-//#define JOYSTICK_SMOOTHING 0.1
-#define JOYSTICK_SMOOTHING 0.4
+//#define JOYSTICK_SMOOTHING 0.4
+//#define JOYSTICK_SMOOTHING 0.3
+#define JOYSTICK_SMOOTHING 0.35
 #define BOUNDARY_SMOOTHING 300.0
 #define BOUNDARY_JOYRESET 20.0
 
@@ -289,6 +295,7 @@ GtkLabel *g_lblPosition2;
 GtkLabel *g_lblPosition3;
 GtkLabel *g_lblPosition4;
 
+GtkLabel *g_lblTime;
 
 char commPortWinch1[80];
 char commPortWinch2[80];
@@ -524,14 +531,17 @@ int flashToggleCount;
 int serialPortFD[4];
 
 float xjoymoveCommand;
+float xjoymoveRaw;
 float xjoymoveSmoothed;
 float xPositionCurrent;
 float xPositionPrev;
 float yjoymoveCommand;
+float yjoymoveRaw;
 float yjoymoveSmoothed;
 float yPositionCurrent;
 float yPositionPrev;
 float zjoymoveCommand;
+float zjoymoveRaw;
 float zjoymoveSmoothed;
 float zPositionCurrent;
 float zPositionPrev;
@@ -613,6 +623,7 @@ float LLcm[5];
 float PAcm[5];
 float DFcm[5];
 
+int joystickStatus = 0;
 
 
 //---------- TEST VARIABLES -----------
@@ -725,10 +736,12 @@ int main (int argc, char *argv[])
 	if ((joy_fd = open(JOY_DEV, (O_RDWR | O_NOCTTY | O_NDELAY))) == -1)
 	{
 		printf("\nCan't open joystick\n");
+		joystickStatus = -1;
 		//return -1;
 	}
 	else
 	{
+		joystickStatus = 1;
 	ioctl( joy_fd, JSIOCGAXES, &num_of_axis );
 	ioctl( joy_fd, JSIOCGBUTTONS, &num_of_buttons );
 	ioctl( joy_fd, JSIOCGNAME(80), &name_of_joystick );
@@ -879,6 +892,7 @@ int main (int argc, char *argv[])
   g_lblModeStatus2 = GTK_LABEL(gtk_builder_get_object(builder, "lblModeStatus2"));
   g_lblPlayBackStatus = GTK_LABEL(gtk_builder_get_object(builder, "lblPlayBackStatus"));
 
+  g_lblTime = GTK_LABEL(gtk_builder_get_object(builder, "lblTime"));
 
   g_dlgBoundary = GTK_WIDGET(gtk_builder_get_object(builder, "dlgBoundary"));
   g_setBoundaryXmin = GTK_ENTRY(gtk_builder_get_object(builder, "entBoundaryXmin"));
@@ -1012,7 +1026,7 @@ void* motorControllerThread (void *arg)
 			buffNumBytes[i] = 0;
 			ioctl(serialPortFD[i], FIONREAD, &buffNumBytes[i]);
 			//printf("port %d bytes available: %d\n", i, buffNumBytes[i]);
-			//printf("Number of bytes = %d\n", bytes);
+			//printf("Number of bytes = %d\n", buffNumBytes[i]);
 			bytesRead = 0;
 
 			//check bytes available
@@ -1035,7 +1049,19 @@ void* motorControllerThread (void *arg)
 			{
 				commErrorCount[i]++;
 				commErrorCountTotal[i]++;
-				sprintf(strReceivedDisplayBuffer[i], "Winch %d: Error - less than 35 bytes rcvd", i+1);
+				sprintf(strReceivedDisplayBuffer[i], "Winch %d: Error - %d < 35 bytes (rp2 Driver)", i+1, buffNumBytes[i]);
+
+				//bytesRead = read(serialPortFD[i], readBuffer, buffNumBytes[i]); //35
+				//readBuffer[bytesRead - 1] = 0; //set string terminator, delete \n at end of string
+				//sprintf(strReceivedDisplayBuffer[i], "Error %d: %s", i+1, readBuffer);
+
+			}
+
+			else if (buffNumBytes[i] == 0)
+			{
+				commErrorCount[i]++;
+				commErrorCountTotal[i]++;
+				sprintf(strReceivedDisplayBuffer[i], "Winch %d: Error - no data rcvd", i+1);
 			}
 
 			//check read bytes (not just available bytes)
@@ -1046,7 +1072,7 @@ void* motorControllerThread (void *arg)
 			//	sprintf(strReceivedDisplayBuffer[i], "Winch %d: Comm Error - no data", i+1);
 			//}
 
-			if (commErrorCount[i] > 8)
+			if (commErrorCount[i] > 16)
 			{
 				winchStatus[i].Comms = ERROR;
 				commErrorCount[i] = 100;
@@ -1059,8 +1085,9 @@ void* motorControllerThread (void *arg)
 				//printf("read %d: %s", bytesRead, readBuffer);
 				//sprintf(strReceivedBuffer, "%s", readBuffer);
 				
+				//sprintf(strReceivedDisplayBuffer[i], "Winch %d: %x,%i,%i,%i", i+1, writeBuffer[1],readBuffer[2],readBuffer[3],readBuffer[4]);
 				sprintf(strReceivedDisplayBuffer[i], "Winch %d: %s", i+1, readBuffer);
-				
+
 				//=== calculate message checksum ===
 				//read packet sent checksum
 				strDataLRC[0] = readBuffer[31];
@@ -1542,7 +1569,7 @@ void* motorControllerThread (void *arg)
 		//check for floor on/off
 		if (systemBoundary.floor == OFF)
 		{
-			systemBoundary.ymin = 0.0;
+			systemBoundary.ymin = 200.0;
 		}
 		else
 		{
@@ -2064,13 +2091,15 @@ gboolean timeoutFunction (gpointer data)
 	sprintf(strMisc, "LL:%6.2fcm  PA:%6.2fcm  DF:%6.3fcm", LLcm[3], PAcm[3], DFcm[3]);
 	gtk_label_set_text(GTK_LABEL(g_lblPosition4), strMisc);
 
+	
+
 
 	//sprintf(strMisc, "POS DIFF: %06.2f  %06.2f  %06.2f  %06.2f", maxDiffLLC[0], maxDiffLLC[1], maxDiffLLC[2], maxDiffLLC[3]);
 	sprintf(strMisc, "ENCDR: %06.4f  %06.4f  %06.4f  %06.4f", winchData[0].PositionActual, winchData[1].PositionActual, winchData[2].PositionActual, winchData[3].PositionActual);
 	gtk_label_set_text(GTK_LABEL(g_lblDebug4), strMisc);
 
 	//sprintf(strMisc, "XCMD: %06.2f  XPOS: %06.2f  DIFF: %06.2f", motionCommand.xPosition, motionData[mdcount].xPosition, motionCommand.xPosition - motionData[mdcount].xPosition);
-	sprintf(strMisc, "XMC: %06.2f  YMC: %06.2f  ZMC: %06.2f", xjoymoveCommand, yjoymoveCommand, zjoymoveCommand);	
+	sprintf(strMisc, "XMC: %06.2f  YMC: %06.2f  ZMC: %06.2f", xjoymoveRaw, yjoymoveRaw, zjoymoveRaw);	
 	gtk_label_set_text(GTK_LABEL(g_lblDebug3), strMisc);
 
 	//sprintf(strMisc, "%06.2f  %06.2f  %06.2f  %06.2f", cumultiveDiffLLC[0], cumultiveDiffLLC[1], cumultiveDiffLLC[2], cumultiveDiffLLC[3]);
@@ -2107,14 +2136,37 @@ gboolean timeoutFunction (gpointer data)
 
 	if (systemBoundary.floor == OFF)
 	{
-		gtk_button_set_label(g_btnFloor, "FLOOR OFF");
+		gtk_button_set_label(g_btnFloor, "FLOOR 2m");
 	}
 	else
 	{
 		gtk_button_set_label(g_btnFloor, "FLOOR ON");
 	}
 
-
+	//display current time
+	time_t rawtime;
+	struct tm * timeinfo;
+	time (&rawtime);
+	timeinfo = localtime(&rawtime);
+	int ampm = 0;
+	int hour12 = timeinfo->tm_hour;
+	if (timeinfo->tm_hour > 12)
+	{
+		hour12 = timeinfo->tm_hour - 12;
+	}
+	if (timeinfo->tm_hour >= 12)
+	{
+		ampm = 1;
+	}
+	if (ampm == 1)
+	{
+		sprintf(strMisc, "%02d:%02d:%02d PM", hour12, timeinfo->tm_min, timeinfo->tm_sec);
+	}
+	else
+	{
+		sprintf(strMisc, "%02d:%02d:%02d AM", hour12, timeinfo->tm_min, timeinfo->tm_sec);
+	}
+	gtk_label_set_text(GTK_LABEL(g_lblTime), strMisc);
 
 	if (systemMode == MODE_LOCKED)
 	{
@@ -2148,6 +2200,12 @@ gboolean timeoutFunction (gpointer data)
 		{
 			gtk_label_set_text(GTK_LABEL(g_lblModeStatus2), "MOVING TO START");
 		}
+	}
+
+	//display joystick box not found (as needed)
+	if (joystickStatus == -1)
+	{
+		gtk_label_set_text(GTK_LABEL(g_lblModeStatus1), "NO JOYSTICK BOX!");
 	}
 	
 	if ((playbackMode == PLAYBACK_MODE_STOP) || (playbackMode == PLAYBACK_MODE_GOTOSTART))
@@ -2685,51 +2743,68 @@ gboolean on_joystick_change (GIOChannel *source, GIOCondition condition, gpointe
 			}
 			
 
-			if (js.number == 1) //LH JOY RIGHT/LEFT
-			{
-				joyValue2 = js.value/32; //convert to appx 0 to 1024
-				pjoymoveCommand = (float)joyValue2/-341.0; //sensitivity limit 0 to 3, reversed
-				joytest1 = (float)joyValue2/-341.0; //sensitivity limit 0 to 3
-			}
+			//if (js.number == 1) //LH JOY RIGHT/LEFT
+			//{
+			//	joyValue2 = js.value/32; //convert to appx 0 to 1024
+			//	pjoymoveCommand = (float)joyValue2/-341.0; //sensitivity limit 0 to 3, reversed
+			//	joytest1 = (float)joyValue2/-341.0; //sensitivity limit 0 to 3
+			//}
 
-			if (js.number == 2) //LH JOY UP/DOWN
+			if (js.number == 3) //LH JOY UP/DOWN
 			{
 				joyValue2 = js.value/32; //convert to appx 0 to 1024
 				//yjoymoveCommand = (float)joyValue2/-341.0; //sensitivity limit 0 to 3, reversed
-				yjoymoveCommand = ((float)joyValue2/51.2); //sensitivity limit 0 to 20, not reversed
+				//yjoymoveCommand = ((float)joyValue2/51.2); //sensitivity limit 0 to 20, not reversed
+				//yjoymoveCommand = ((float)joyValue2/34.1); //sensitivity limit 0 to 30, not reversed
+				yjoymoveCommand = ((float)joyValue2/102.4); //sensitivity limit 0 to 10, not reversed
 				
 				//add deadband
 				if ((yjoymoveCommand < 0.2) && (yjoymoveCommand > -0.2))
 				{
 					yjoymoveCommand = 0;
 				}
+				yjoymoveRaw = yjoymoveCommand;
 			}
 
-			if (js.number == 3) //RH JOY RIGHT/LEFT
+			if (js.number == 0) //RH JOY RIGHT/LEFT
 			{
 				joyValue2 = js.value/32; //convert to appx 0 to 1024
+				//xjoymoveCommand = (float)joyValue2/102.4; //sensitivity limit 0 to 10, not reversed
 				//xjoymoveCommand = (float)joyValue2/-102.4; //sensitivity limit 0 to 10, reversed
 				//xjoymoveCommand = ((float)joyValue2/-25.6); //sensitivity limit 0 to 40, reversed
-				xjoymoveCommand = ((float)joyValue2/25.6); //sensitivity limit 0 to 40, not reversed
+				//xjoymoveCommand = ((float)joyValue2/25.6); //sensitivity limit 0 to 40, not reversed
+				//xjoymoveCommand = ((float)joyValue2/12.8); //sensitivity limit 0 to 80, not reversed
+				//xjoymoveCommand = ((float)joyValue2/38.4); //sensitivity limit 0 to 30, not reversed
+				xjoymoveCommand = ((float)joyValue2/51.2); //sensitivity limit 0 to 20, not reversed
+				//xjoymoveCommand = ((float)joyValue2/30.0); //sensitivity limit 0 to 30ish, not reversed
+
+				//additional limit to joystick input
+				if (xjoymoveCommand > 30)
+					xjoymoveCommand = 30;
+					
 
 				//add deadband
 				if ((xjoymoveCommand < 0.2) && (xjoymoveCommand > -0.2))
 				{
 					xjoymoveCommand = 0;
 				}
+				xjoymoveRaw = xjoymoveCommand;
 			}
-			if (js.number == 4) //RH JOY UP/DOWN
+			if (js.number == 1) //RH JOY UP/DOWN
 			{
 				joyValue2 = js.value/32; //convert to appx 0 to 1024
-				//zjoymoveCommand = (float)joyValue2/102.4; //sensitivity limit 0 to 10 
-				//zjoymoveCommand = (float)joyValue2/25.6; //sensitivity limit 0 to 40
-				zjoymoveCommand = (float)joyValue2/-25.6; //sensitivity limit 0 to 40, reversed
+				zjoymoveCommand = (float)joyValue2/102.4; //sensitivity limit 0 to 10, not reversed 
+				//zjoymoveCommand = (float)joyValue2/-25.6; //sensitivity limit 0 to 40, reversed
+				//zjoymoveCommand = (float)joyValue2/25.6; //sensitivity limit 0 to 40, not reversed
+				//zjoymoveCommand = (float)joyValue2/38.4; //sensitivity limit 0 to 30, not reversed
+				//zjoymoveCommand = (float)joyValue2/51.2; //sensitivity limit 0 to 20, not reversed
 
 				//add deadband
 				if ((zjoymoveCommand < 0.2) && (zjoymoveCommand > -0.2))
 				{
 					zjoymoveCommand = 0;
 				}
+				zjoymoveRaw = zjoymoveCommand;
 			}
 		}
 	return TRUE;
@@ -2774,7 +2849,7 @@ gboolean on_drawingarea2_draw (GtkWidget *widget, cairo_t *cr, gpointer data)
 
 	cairo_move_to(cr, 10, 60);
 	//sprintf(strMisc, "Version: %5.2f", BUILD_NUMBER);
-	sprintf(strMisc, "Version: %s", BUILD_NUMBER);
+	sprintf(strMisc, "%s", BUILD_NUMBER);
 	cairo_show_text(cr, strMisc);
 
 	return FALSE;
@@ -3065,6 +3140,16 @@ gboolean on_elevationDrawArea_draw (GtkWidget *widget, cairo_t *cr, gpointer dat
 		cairo_stroke(cr);
 	}
 
+	//boundary values
+	cairo_set_font_size(cr, 16);
+	cairo_set_source_rgba (cr, RED01);
+	cairo_move_to(cr, -280, -10);
+	sprintf(strMisc, "Y MIN: %3.1f m", systemBoundary.ymin/100);
+	cairo_show_text(cr, strMisc);
+	cairo_move_to(cr, -280, -120);
+	sprintf(strMisc, "Y MAX: %3.1f m", systemBoundary.ymax/100);
+	cairo_show_text(cr, strMisc);
+
 
 	//draw path
 	cairo_set_line_width (cr, 2.0);
@@ -3222,6 +3307,7 @@ gboolean on_floorDrawArea_draw (GtkWidget *widget, cairo_t *cr, gpointer data)
 	cairo_show_text(cr, strMisc);
 
 	//draw boundary value text
+	cairo_set_font_size(cr, 14);
 	cairo_set_source_rgba (cr, RED01);
 	cairo_move_to(cr, systemBoundary.xmin/MP_SCALE-20, -100);
 	sprintf(strMisc, "%3.1f m", systemBoundary.xmin/100);
@@ -4062,7 +4148,7 @@ void on_btnFloorOnOff_clicked ()
 	{
 		systemBoundary.floor = OFF;
 	}
-	else
+	else if ((systemBoundary.floor == OFF) && (motionCommand.yPosition > systemBoundary.yminSaved))
 	{
 		systemBoundary.floor = ON;
 	}
